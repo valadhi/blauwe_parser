@@ -9,7 +9,6 @@ from google import genai
 from google.genai.types import GenerateContentConfig
 
 # --- UTILS ---
-
 def generate_with_retry(model_name: str, contents: list, config: GenerateContentConfig, retries: int = 5, base_delay: int = 5):
     """Wraps Gemini calls with exponential backoff for 429 errors."""
     for attempt in range(retries):
@@ -39,7 +38,6 @@ client = genai.Client(api_key=api_key)
 
 
 # --- GENERIC DATA STRUCTURES ---
-
 class SampleLocation(BaseModel):
     """Defines where a specific sample is located in the document."""
     sample_id: str = Field(description="The name of the sample (e.g., 'MV27', 'Soil_1').")
@@ -82,7 +80,6 @@ def get_pdf_text_layout(file_path: str) -> List[str]:
 
 
 # --- PHASE 1: THE SCOUT (Structure Discovery) ---
-
 def discover_structure(all_pages: List[str], base_name: str) -> DocumentStructure:
     print("🗺️  Phase 1: Scouting Document Structure...")
 
@@ -125,7 +122,6 @@ def discover_structure(all_pages: List[str], base_name: str) -> DocumentStructur
 
 
 # --- PHASE 2: THE MINER (Context-Aware Extraction) ---
-
 def extract_data_with_map(page_text: str, structure: DocumentStructure, base_name: str, chunk_index: int) -> List[ExtractionResult]:
     """
     Extracts data using the discovered map as context.
