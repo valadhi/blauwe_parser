@@ -75,6 +75,17 @@ else:
         st.warning("No samples found for this PDF.")
         samples_conn.close()
     else:
+        selected_samples = st.multiselect(
+            "Select samples to visualize",
+            sample_ids,
+            default=sample_ids,
+        )
+
+        if not selected_samples:
+            st.info("Choose at least one sample to render visuals.")
+            samples_conn.close()
+            st.stop()
+
         # Open rules DB for CBC evaluation
         db_path = "baggerTool_v7.db"
         if not os.path.exists(db_path):
@@ -86,7 +97,7 @@ else:
         result_rows = []
         matrices = {}
 
-        for sample_name in sample_ids:
+        for sample_name in selected_samples:
             wide = load_sample_wide(samples_conn, user_id, selected_pdf, sample_name, required_cols)
             if wide is None or wide.empty:
                 st.warning(f"No wide data reconstructed for sample {sample_name}, skipping.")

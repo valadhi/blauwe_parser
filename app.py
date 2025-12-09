@@ -1,7 +1,15 @@
 # app.py
+import os
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+import pandas as pd
 import streamlit as st
 
 from auth_config import get_authenticator
+from db.samples_store import get_conn as get_samples_conn, save_extraction_results
+from smart_parser_two_pass import process_generic_report
+
 
 st.set_page_config(page_title="Report Parser", layout="wide")
 
@@ -28,21 +36,66 @@ if auth_status:
     # This username will be our `user_id` in samples.db
     user_id = username
 
-    mode = st.radio(
-        "Choose input format:",
-        [
-            "Port of Rotterdam (PDF + Excel)",
-            "Municipality Leiden (Type1 + Type2 PDFs)",
-        ],
-    )
+    st.subheader("Upload a single PDF to parse")
+    uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
 
-    if mode == "Port of Rotterdam (PDF + Excel)":
-        from pipelines.pipeline_typeA import run_pipeline
-        run_pipeline(user_id)
+    if uploaded_file is not None:
+        pdf_id = uploaded_file.name
+        pdf_stem = Path(pdf_id).stem
 
-    elif mode == "Municipality Leiden (Type1 + Type2 PDFs)":
-        from pipelines.pipeline_typeB import run_pipeline
-        run_pipeline(user_id)
+        pdf_bytes = uploaded_file.getvalue()
+
+        cache_dir = Path("extractions")
+        cache_dir.mkdir(exist_ok=True)
+
+        # Prefer a cached extraction by original name and fall back to any legacy
+        # location in the current working directory. All parser outputs are stored
+        # using the original file name to avoid temporary hashes.
+        cache_candidates = [
+            cache_dir / f"{pdf_stem}_extracted.csv",
+            Path(f"{pdf_stem}_extracted.csv"),
+        ]
+
+        extracted_path = next((path for path in cache_candidates if path.exists()), None)
+
+        if extracted_path is not None:
+            st.info(f"Found existing extraction for '{pdf_id}'. Using cached results from {extracted_path.name}.")
+            try:
+                extracted_df = pd.read_csv(extracted_path)
+            except Exception as e:
+                st.error(f"Failed to load cached extraction: {e}")
+                extracted_df = None
+        else:
+            # Persist the uploaded PDF under its original name to keep parser outputs
+            # aligned and avoid temporary naming.
+            pdf_cache_path = cache_dir / pdf_id
+            with open(pdf_cache_path, "wb") as tmp_pdf:
+                tmp_pdf.write(pdf_bytes)
+
+            with st.spinner("Running smart parser (two-pass)..."):
+                try:
+                    # Store all parser outputs (debug + extracted) under cache_dir using the
+                    # original file name as the base.
+                    extracted_df = process_generic_report(
+                        str(pdf_cache_path), output_base_name=str(cache_dir / pdf_stem)
+                    )
+                except Exception as e:
+                    st.error(f"Parsing failed: {e}")
+                    extracted_df = None
+
+        if extracted_df is None or extracted_df.empty:
+            st.warning("No samples were extracted from this upload.")
+        else:
+            samples_conn = get_samples_conn()
+            save_extraction_results(samples_conn, user_id, pdf_id, extracted_df)
+            samples_conn.close()
+
+            sample_names = sorted(extracted_df["sample_id"].unique())
+            parameters = sorted(extracted_df["parameter"].unique())
+
+            st.success(f"Stored {len(sample_names)} samples from '{pdf_id}' for {user_id}.")
+            st.write("**Samples detected:**", ", ".join(sample_names))
+            st.write("**Parameters found:**", ", ".join(parameters))
 
 elif auth_status is False:
     st.error("Username/password is incorrect")

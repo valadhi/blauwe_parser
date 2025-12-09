@@ -99,7 +99,7 @@ def discover_structure(all_pages: List[str], base_name: str) -> DocumentStructur
 
     try:
         response = generate_with_retry(
-            model_name="gemini-2.5-flash",
+            model_name="gemini-2.0-flash-lite",
             contents=[prompt, full_context],
             config=GenerateContentConfig(
                 response_mime_type="application/json",
@@ -151,7 +151,7 @@ def extract_data_with_map(page_text: str, structure: DocumentStructure, base_nam
 
     try:
         response = generate_with_retry(
-            model_name="gemini-2.5-flash",
+            model_name="gemini-2.0-flash-lite",
             contents=prompt,
             config=GenerateContentConfig(
                 response_mime_type="application/json",
@@ -173,8 +173,8 @@ def extract_data_with_map(page_text: str, structure: DocumentStructure, base_nam
 
 # --- MAIN PIPELINE ---
 
-def process_generic_report(file_path: str):
-    base_name = os.path.splitext(os.path.basename(file_path))[0]
+def process_generic_report(file_path: str, output_base_name: str | None = None) -> pd.DataFrame:
+    base_name = output_base_name or os.path.splitext(os.path.basename(file_path))[0]
     # 1. Read File
     pages = get_pdf_text_layout(file_path)
 
@@ -190,7 +190,7 @@ def process_generic_report(file_path: str):
 
     if not structure.samples:
         print("⚠️ No samples detected. Manual review required.")
-        return
+        return pd.DataFrame(columns=["sample_id", "parameter", "value", "unit"])
 
     # 3. Mine Data (Chunking by logical segments)
     all_results = []
@@ -213,7 +213,8 @@ def process_generic_report(file_path: str):
     df = pd.DataFrame([vars(r) for r in all_results])
 
     # Cleanup: Remove potential duplicates if chunks overlapped or headers repeated
-    df.drop_duplicates(subset=['sample_id', 'parameter', 'unit'], keep='last', inplace=True)
+    if not df.empty:
+        df.drop_duplicates(subset=['sample_id', 'parameter', 'unit'], keep='last', inplace=True)
 
     print("\n✅ Extraction Complete.")
     print(df.head(10))
@@ -221,18 +222,18 @@ def process_generic_report(file_path: str):
     output_name = f"{os.path.splitext(os.path.basename(file_path))[0]}_extracted.csv"
     df.to_csv(output_name, index=False)
     print(f"Saved to {output_name}")
-
+    return df
 
 # --- EXECUTION ---
-if __name__ == "__main__":
-    # This works for BOTH Type 1 and Type 2 without changing a single line of code.
-    files_to_test = [
-        "certificate_2025051526_48362318.pdf"
-        # "MV27_certificate_2025063802_48806662_Type2.pdf",
-        # "MV27_certificate_2025063812_48808121_Type1.pdf"
-    ]
-
-    for f in files_to_test:
-        if os.path.exists(f):
-            print(f"\nProcessing: {f}")
-            process_generic_report(f)
+# if __name__ == "__main__":
+#     # This works for BOTH Type 1 and Type 2 without changing a single line of code.
+#     files_to_test = [
+#         "certificate_2025051526_48362318.pdf"
+#         # "MV27_certificate_2025063802_48806662_Type2.pdf",
+#         # "MV27_certificate_2025063812_48808121_Type1.pdf"
+#     ]
+#
+#     for f in files_to_test:
+#         if os.path.exists(f):
+#             print(f"\nProcessing: {f}")
+#             process_generic_report(f)
