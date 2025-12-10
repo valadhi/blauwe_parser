@@ -9,55 +9,86 @@ import pdfplumber
 import streamlit as st
 
 # ---------------------------
-# 1) Parameter rename map (from notebook)
+# 1) Parameter rename map (Updated based on provided DB export)
 # ---------------------------
 rename_map = {
-    # Carbon / Chemistry
-    "Anorg. koolstof (CaCO3) % (m/m)": "Kalk (CaCO3)",
-    "Q Anorganisch koolstof (als C) g/kg": "Kalk (CaCO3)",
-    "C-anorganisch": "Kalk (CaCO3)",
-    "C-organisch": "Gehalte organische koolstof (TOC)",
-    "Organische stof": "Gehalte organische stof",
-    "S Organische stof % (m/m)": "Gehalte organische stof",
-    "Koolzure kalk": "Kalk (CaCO3)",
-    "N-totale bodemvoorraad": "Stikstof totaal (N-Kjeldahl)",
-    "S-totale bodemvoorraad": "Zwavel totaal",
-    "S-plantbeschikbaar": "Zwavel beschikbaar",
-    "P-plantbeschikbaar": "Fosfor beschikbaar",
-    "P-bodemvoorraad": "Fosfor totaal (destructie)",
-    "K-plantbeschikbaar": "Kalium beschikbaar",
-    "K-bodemvoorraad": "Kalium totaal",
-    "pH (1:2,5)": "pH-waarde",
+    # --- Carbon / Organische stof ---
+    "Anorg. koolstof (CaCO3) (% (m/m) ds)": "Kalk (CaCO3)",
+    "Anorganisch koolstof (als C) (g/kg ds)": "Kalk (CaCO3)",
+    "C-anorganisch (%)": "Kalk (CaCO3)",
+    "Koolzure kalk (%)": "Kalk (CaCO3)",
 
-    # Texture / particle fractions (common Dutch lab terms → CBC names)
-    "Grootste korrel": "Korrelverdeling (M50)",
-    "Korrelverdeling M50": "Korrelverdeling (M50)",
-    "Korrelverdeling D60/D10": "Korrelverdeling (D60/D10)",
-    "Fractie tot 2 um (lutum)": "Lutum (fractie < 2um)",
-    "Fractie tot 10 um (leemfractie)": "Leemfractie (fractie < 10um)",
-    "Fractie tot 20 um (silt)": "Silt (2um < fractie < 63um)",
-    "Fractie tot 63 um": "(20 < fractie < 63um)",
-    "Fractie 63um-250um": "(63um < fractie < 250um)",
-    "Fractie 250um-2mm": "(250um < fractie < 2mm)",
-    "Zand": "Zand (63um < fractie < 2mm)",
-    "Leem": "Leem (lutum+silt)",
-    "Grof materiaal": "Grof materiaal (fractie)",
-    "Bodemvreemd": "Bodemvreemd",
+    "C-organisch (%)": "Gehalte organische koolstof (TOC)",
 
-    # Metals (subset used in notebook)
-    "S Koper (Cu) mg/kg": "Koper totaal",
-    "S Zink (Zn) mg/kg": "Zink totaal",
+    "Organische stof (% (m/m) ds)": "Gehalte organische stof",
+    "Organische stof (%)": "Gehalte organische stof",
 
-    # Entries to drop (no direct mapping)
-    "Q Gloeirest % (m/m)": None,
-    "S Droge stof %": None,
-    "S Arseen (As) mg/kg": None,
-    "S Barium (Ba) mg/kg": None,
-    "S Cadmium (Cd) mg/kg": None,
-    "S Chroom (Cr) mg/kg": None,
-    "S Kwik (Hg) mg/kg": None,
-    "S Lood (Pb) mg/kg": None,
-    "S Nikkel (Ni) mg/kg": None,
+    # --- Nutriënten (Concentraties voor regels) ---
+    "N-totale bodemvoorraad (mg N/kg)": "Stikstof totaal (N-Kjeldahl)",
+
+    "S-totale bodemvoorraad (mg S/kg)": "Zwavel totaal",
+    "S-plantbeschikbaar (mg S/kg)": "Zwavel beschikbaar",
+
+    # Fosfor
+    "P-bodemvoorraad (mg P/100 g)": "Fosfor totaal (destructie)",
+    "P-bodemvoorraad (mg P2O5/100 g)": "Fosfor totaal (destructie)",
+    "P-plantbeschikbaar (mg P/kg)": "Fosfor beschikbaar",
+
+    # Kalium
+    "K-bodemvoorraad (mmol+/kg)": "Kalium totaal",
+    "K-plantbeschikbaar (mg K/kg)": "Kalium beschikbaar",
+
+    # Overige kationen (CEC context)
+    "Ca-bodemvoorraad (mmol+/kg)": "Calcium totaal",
+    "Mg-bodemvoorraad (mmol+/kg)": "Magnesium totaal",
+
+    # pH
+    "Zuurgraad (pH)": "pH-waarde",
+    "Zuurgraad (pH-CaCl2) (pH unit)": "pH-waarde",  # Alternatief indien gebruikt
+
+    # --- Fracties / Textuur ---
+    # Lutum (< 2um)
+    "Klei (<2 µm) (%)": "Lutum (fractie < 2um)",
+    "Korrelgrootte < 2 µm, gravimetrisch (% (m/m) ds)": "Lutum (fractie < 2um)",
+    "Korrelgrootte < 2 µm, laser (% min. delen)": "Lutum (fractie < 2um)",  # Fallback
+
+    # Silt (2-63um, maar 2-50um komt vaak voor in landbouw)
+    "Silt (2-50 µm) (%)": "Silt (2um < fractie < 63um)",
+
+    # Zand (> 50/63um)
+    "Zand (>50 µm) (%)": "Zand (63um < fractie < 2mm)",
+
+    # Overig textuur (Mapping naar dichtstbijzijnde CBC definitie indien mogelijk)
+    "Korrelgrootte < 63 µm (% (m/m) ds)": "(63um < fractie < 250um)",
+    # Ruwe schatting, vaak 'fractie < 63' is totaal fijn
+
+    # --- Metalen ---
+    "Koper (Cu) (mg/kg ds)": "Koper totaal",
+    "Zink (Zn) (mg/kg ds)": "Zink totaal",
+
+    # --- Entries to drop / ignore (Landbouwkundige voorraden in kg/ha) ---
+    "N-totale bodemvoorraad (kg N/ha)": None,
+    "S-totale bodemvoorraad (kg S/ha)": None,
+    "P-bodemvoorraad (kg P/ha)": None,
+    "K-bodemvoorraad (kg K/ha)": None,
+    "Ca-bodemvoorraad (kg Ca/ha)": None,
+    "Mg-bodemvoorraad (kg Mg/ha)": None,
+    "Na-bodemvoorraad (kg Na/ha)": None,
+
+    "Aanvoer effectieve organische stof (gewasresten) (kg/ha)": None,
+    "Fosfaat (P2O5) - Bodemgericht Advies (kg/ha)": None,
+    "Kali (K2O) - Bodemgericht Advies (kg/ha)": None,
+
+    # --- Overige te negeren parameters ---
+    "Gloeirest (% (m/m) ds)": None,
+    "Droge stof (% (m/m))": None,
+    "Arseen (As) (mg/kg ds)": None,
+    "Barium (Ba) (mg/kg ds)": None,
+    "Cadmium (Cd) (mg/kg ds)": None,
+    "Chroom (Cr) (mg/kg ds)": None,
+    "Kwik (Hg) (mg/kg ds)": None,
+    "Lood (Pb) (mg/kg ds)": None,
+    "Nikkel (Ni) (mg/kg ds)": None,
 }
 
 required_cols = [
@@ -92,6 +123,7 @@ required_cols = [
     "Zink totaal",
 ]
 
+
 # ---------------------------
 # 6) CBC rule engine
 # ---------------------------
@@ -103,6 +135,12 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
       - results_df: 1-row DataFrame with columns [<targets...>, SampleID, DateProcessed]
       - compact_matrix: DataFrame EigName x TargetName with values {-1, 0, 1}
     """
+
+    # --- 0. Apply Rename Map ---
+    # The input columns are in the format "Parameter (Unit)".
+    # We rename them here to the internal "CBC Name" expected by the rules database.
+    # Columns not found in the map remain unchanged.
+    sample_wide_df = sample_wide_df.rename(columns=rename_map)
 
     def get_table(name: str):
         cs = db_conn.execute(f"SELECT * FROM {name}")
@@ -119,7 +157,7 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
 
     for e in eigenschap:
         eig_id = str(e["EigID"])
-        name = str(e["Name"])  # expected column name in sample_wide_df
+        name = str(e["Name"])  # expected column name in sample_wide_df (now after rename)
         if name in sample_wide_df.columns:
             try:
                 val = float(row[name]) if pd.notna(row[name]) else -1
@@ -204,4 +242,3 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
     ).fillna(-1).astype(int)
 
     return results_df, compact_matrix
-
