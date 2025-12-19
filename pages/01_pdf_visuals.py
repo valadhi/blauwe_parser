@@ -40,78 +40,64 @@ user_id = st.session_state.get("username")
 
 st.title("View existing PDF samples")
 
-# Connect to samples DB and list available pdf_ids for this user
+# Connect to samples DB and list available samples for this user
 samples_conn = get_samples_conn()
 
 cur = samples_conn.execute(
     """
-    SELECT DISTINCT pdf_id
+    SELECT DISTINCT pdf_id, sample_id
     FROM extracted_samples
     WHERE user_id = ?
-    ORDER BY pdf_id
+    ORDER BY pdf_id, sample_id
     """,
     (user_id,),
 )
-pdf_ids = [r[0] for r in cur.fetchall()]
+sample_pairs = cur.fetchall()
 
-if not pdf_ids:
+if not sample_pairs:
     st.info("No stored samples found yet for this user.")
     samples_conn.close()
 else:
-    selected_pdf = st.selectbox("Select a PDF (certificate)", pdf_ids)
-
-    cur = samples_conn.execute(
-        """
-        SELECT DISTINCT sample_id
-        FROM extracted_samples
-        WHERE user_id = ? AND pdf_id = ?
-        ORDER BY sample_id
-        """,
-        (user_id, selected_pdf),
+    selected_samples = st.multiselect(
+        "Select samples to visualize",
+        sample_pairs,
+        format_func=lambda pair: f"{pair[0]} — {pair[1]}",
     )
-    sample_ids = [r[0] for r in cur.fetchall()]
 
-    if not sample_ids:
-        st.warning("No samples found for this PDF.")
+    if not selected_samples:
+        st.info("Choose at least one sample to render visuals.")
         samples_conn.close()
+        st.stop()
+
+    # Open rules DB for CBC evaluation
+    db_path = "baggerTool_v7.db"
+    if not os.path.exists(db_path):
+        st.error("Local rules database 'baggerTool_v7.db' not found.")
+        samples_conn.close()
+        st.stop()
+    db_conn = sqlite3.connect(db_path)
+
+    result_rows = []
+    matrices = {}
+
+    for pdf_id, sample_name in selected_samples:
+        wide = load_sample_wide(samples_conn, user_id, pdf_id, sample_name, required_cols)
+        if wide is None or wide.empty:
+            st.warning(f"No wide data reconstructed for sample {sample_name} in {pdf_id}, skipping.")
+            continue
+
+        sample_label = f"{pdf_id} — {sample_name}"
+        wide["SampleID"] = sample_label
+
+        res_df, pf_df = run_cbc(wide, db_conn)
+        result_rows.append(res_df)
+        matrices[sample_label] = pf_df
+
+    db_conn.close()
+    samples_conn.close()
+
+    if not result_rows:
+        st.warning("No CBC results could be computed for the selected samples.")
     else:
-        selected_samples = st.multiselect(
-            "Select samples to visualize",
-            sample_ids,
-            default=sample_ids,
-        )
-
-        if not selected_samples:
-            st.info("Choose at least one sample to render visuals.")
-            samples_conn.close()
-            st.stop()
-
-        # Open rules DB for CBC evaluation
-        db_path = "baggerTool_v7.db"
-        if not os.path.exists(db_path):
-            st.error("Local rules database 'baggerTool_v7.db' not found.")
-            samples_conn.close()
-            st.stop()
-        db_conn = sqlite3.connect(db_path)
-
-        result_rows = []
-        matrices = {}
-
-        for sample_name in selected_samples:
-            wide = load_sample_wide(samples_conn, user_id, selected_pdf, sample_name, required_cols)
-            if wide is None or wide.empty:
-                st.warning(f"No wide data reconstructed for sample {sample_name}, skipping.")
-                continue
-
-            res_df, pf_df = run_cbc(wide, db_conn)
-            result_rows.append(res_df)
-            matrices[sample_name] = pf_df
-
-        db_conn.close()
-        samples_conn.close()
-
-        if not result_rows:
-            st.warning("No CBC results could be computed for this PDF.")
-        else:
-            result = pd.concat(result_rows, ignore_index=True)
-            show_sample_visuals(result, matrices)
+        result = pd.concat(result_rows, ignore_index=True)
+        show_sample_visuals(result, matrices)
