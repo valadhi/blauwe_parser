@@ -11,32 +11,54 @@ from db.samples_store import get_conn as get_samples_conn, save_extraction_resul
 from smart_parser_two_pass import process_generic_report
 
 
-st.set_page_config(page_title="Report Parser", layout="wide")
+st.set_page_config(page_title="Soil Report Intelligence", layout="wide", page_icon="🌱")
 
-# Create / restore authenticator
-authenticator, config = get_authenticator()
+# # Create / restore authenticator
+# authenticator, config = get_authenticator()
+#
+# # ---- LOGIN WIDGET ----
+# try:
+#     authenticator.login()  # location defaults to 'main'
+# except Exception as e:
+#     st.error(e)
+#
 
-# ---- LOGIN WIDGET ----
-try:
-    authenticator.login()  # location defaults to 'main'
-except Exception as e:
-    st.error(e)
+if "authentication_status" not in st.session_state:
+    st.session_state["authentication_status"] = True
+    st.session_state["username"] = "default_user"
+    st.session_state["name"] = "Default User"
+
+# Retrieve User Info
+name = st.session_state.get("name", "User")
+user_id = st.session_state.get("username", "default_user")
+
+# --- SECRETS MANAGEMENT ---
+# Try to get key from Streamlit Secrets, fallback to Environment Variable
+api_key = os.getenv("GEMINI_KEY") or st.secrets.get("GEMINI_KEY")
+if not api_key:
+    st.error("🚨 GEMINI_KEY is missing! Please add it to .streamlit/secrets.toml or Streamlit Cloud Secrets.")
+    st.stop()
 
 auth_status = st.session_state.get("authentication_status", None)
-
 if auth_status:
     # Logged in
-    authenticator.logout(location="sidebar", key="logout_button")
+    # authenticator.logout(location="sidebar", key="logout_button")
     username = st.session_state.get("username")
     name = st.session_state.get("name", username)
 
-    st.title("Upload → Process → Visualize")
-    st.write(f"Logged in as **{name}** (`{username}`)")
+    st.title("🌱 Soil Report Intelligence")
+    st.markdown("### Intelligent Analysis & Compliance Reporting")
 
     # This username will be our `user_id` in samples.db
     user_id = username
 
-    st.subheader("Upload a single PDF to parse")
+    col1, col2 = st.columns(2)
+    col1.info(f"👤 **User:** {name}")
+    # col2.info(f"📂 **Project:** Port of Rotterdam")
+
+    st.divider()
+
+    st.subheader("📄 Import New Report")
     uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
 
     if uploaded_file is not None:
@@ -77,7 +99,9 @@ if auth_status:
                     # Store all parser outputs (debug + extracted) under cache_dir using the
                     # original file name as the base.
                     extracted_df = process_generic_report(
-                        str(pdf_cache_path), output_base_name=str(cache_dir / pdf_stem)
+                        str(pdf_cache_path),
+                        output_base_name=str(cache_dir / pdf_stem),
+                        api_key=api_key
                     )
                 except Exception as e:
                     st.error(f"Parsing failed: {e}")

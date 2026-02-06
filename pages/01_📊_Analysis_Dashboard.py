@@ -10,7 +10,7 @@ from db.samples_store import get_conn as get_samples_conn, load_sample_wide, get
 # Make parent folder importable
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from auth_config import get_authenticator
+# from auth_config import get_authenticator
 from db.samples_store import get_conn as get_samples_conn, load_sample_wide, get_parameter_mappings
 from visuals.visuals import show_sample_visuals
 from cbc.cbc_core import run_cbc, required_cols
@@ -19,22 +19,27 @@ from cbc.cbc_core import run_cbc, required_cols
 st.set_page_config(page_title="PDF Visuals – Port of Rotterdam", layout="wide")
 
 # Re-create authenticator and "replay" login (unrendered)
-authenticator, config = get_authenticator()
-try:
-    authenticator.login(location="unrendered")
-except Exception as e:
-    st.error(e)
+# authenticator, config = get_authenticator()
+# try:
+#     authenticator.login(location="unrendered")
+# except Exception as e:
+#     st.error(e)
+#
+# auth_status = st.session_state.get("authentication_status", None)
+#
+# if not auth_status:
+#     if auth_status is False:
+#         st.error("Username/password is incorrect. Please go back to the main page and log in.")
+#     else:
+#         st.warning("You must log in from the main page to access this view.")
+#     st.stop()
+# else:
+#     authenticator.logout(location="sidebar", key="logout_button")
 
-auth_status = st.session_state.get("authentication_status", None)
 
-if not auth_status:
-    if auth_status is False:
-        st.error("Username/password is incorrect. Please go back to the main page and log in.")
-    else:
-        st.warning("You must log in from the main page to access this view.")
-    st.stop()
-else:
-    authenticator.logout(location="sidebar", key="logout_button")
+if "authentication_status" not in st.session_state:
+    st.session_state["authentication_status"] = True
+    st.session_state["username"] = "default_user"
 
 user_id = st.session_state.get("username")
 

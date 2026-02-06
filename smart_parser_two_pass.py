@@ -8,9 +8,18 @@ from pydantic import BaseModel, Field
 from google import genai
 from google.genai.types import GenerateContentConfig
 
+# Global client placeholder
+client = None
+
+
 # --- UTILS ---
-def generate_with_retry(model_name: str, contents: list, config: GenerateContentConfig, retries: int = 5, base_delay: int = 5):
+def generate_with_retry(model_name: str, contents: list, config: GenerateContentConfig, retries: int = 5,
+                        base_delay: int = 5):
     """Wraps Gemini calls with exponential backoff for 429 errors."""
+    global client
+    if not client:
+        raise ValueError("Gemini Client not initialized. Pass api_key to process_generic_report.")
+
     for attempt in range(retries):
         try:
             return client.models.generate_content(
@@ -21,20 +30,12 @@ def generate_with_retry(model_name: str, contents: list, config: GenerateContent
         except Exception as e:
             error_str = str(e)
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                wait_time = base_delay * (2 ** attempt) # 5s, 10s, 20s, 40s...
+                wait_time = base_delay * (2 ** attempt)  # 5s, 10s, 20s, 40s...
                 print(f"   ⚠️ Quota hit (429). Retrying in {wait_time}s...")
                 time.sleep(wait_time)
             else:
-                raise e # Raise other errors immediately
+                raise e  # Raise other errors immediately
     raise Exception("Max retries exceeded for Gemini API.")
-
-
-api_key = os.getenv("GEMINI_KEY")
-
-if not api_key:
-    raise ValueError("No GEMINI_KEY found in environment variables")
-
-client = genai.Client(api_key=api_key)
 
 
 # --- GENERIC DATA STRUCTURES ---
@@ -109,7 +110,7 @@ def discover_structure(all_pages: List[str], base_name: str) -> DocumentStructur
         )
         structure = response.parsed
 
-        # [DEBUG FIX] Save the structure output
+        # Save the structure output for debug
         with open(f"{base_name}_debug_structure.json", "w", encoding="utf-8") as f:
             f.write(structure.model_dump_json(indent=2))
         print(f"   🐛 Debug: Saved structure map to {base_name}_debug_structure.json")
@@ -122,7 +123,8 @@ def discover_structure(all_pages: List[str], base_name: str) -> DocumentStructur
 
 
 # --- PHASE 2: THE MINER (Context-Aware Extraction) ---
-def extract_data_with_map(page_text: str, structure: DocumentStructure, base_name: str, chunk_index: int) -> List[ExtractionResult]:
+def extract_data_with_map(page_text: str, structure: DocumentStructure, base_name: str, chunk_index: int) -> List[
+    ExtractionResult]:
     """
     Extracts data using the discovered map as context.
     """
@@ -162,7 +164,6 @@ def extract_data_with_map(page_text: str, structure: DocumentStructure, base_nam
 
         debug_filename = f"{base_name}_debug_extract_chunk_{chunk_index}.json"
         with open(debug_filename, "w", encoding="utf-8") as f:
-            # We dump the parsed object, or response.text if parsing failed logic
             f.write(response.parsed.model_dump_json(indent=2))
 
         return response.parsed.results
@@ -173,14 +174,33 @@ def extract_data_with_map(page_text: str, structure: DocumentStructure, base_nam
 
 # --- MAIN PIPELINE ---
 
-def process_generic_report(file_path: str, output_base_name: str | None = None) -> pd.DataFrame:
+def process_generic_report(file_path: str, output_base_name: str | None = None,
+                           api_key: str | None = None) -> pd.DataFrame:
+    """
+    Main entry point.
+    Accepts api_key explicitly to avoid Streamlit dependency here.
+    """
+    global client
+
+    # Initialize Client
+    if api_key:
+        client = genai.Client(api_key=api_key)
+    elif not client:
+        # Fallback to env var if not passed
+        env_key = os.getenv("GEMINI_KEY")
+        if env_key:
+            client = genai.Client(api_key=env_key)
+        else:
+            raise ValueError("No GEMINI_KEY provided. Pass api_key argument or set env var.")
+
     base_name = output_base_name or os.path.splitext(os.path.basename(file_path))[0]
+
     # 1. Read File
     pages = get_pdf_text_layout(file_path)
 
     full_text_debug = "\n".join(pages)
 
-    # [DEBUG FIX] Save the raw input text
+    # Save the raw input text
     with open(f"{base_name}_debug_input.txt", "w", encoding="utf-8") as f:
         f.write(full_text_debug)
     print(f"   🐛 Debug: Saved raw input to {base_name}_debug_input.txt")
@@ -226,11 +246,8 @@ def process_generic_report(file_path: str, output_base_name: str | None = None) 
 
 # --- EXECUTION ---
 # if __name__ == "__main__":
-#     # This works for BOTH Type 1 and Type 2 without changing a single line of code.
 #     files_to_test = [
 #         "certificate_2025051526_48362318.pdf"
-#         # "MV27_certificate_2025063802_48806662_Type2.pdf",
-#         # "MV27_certificate_2025063812_48808121_Type1.pdf"
 #     ]
 #
 #     for f in files_to_test:

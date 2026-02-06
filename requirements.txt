@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+plotly
+pymupdf
+google-genai
+pydantic
+streamlit-authenticator
+pyyaml
