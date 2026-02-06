@@ -4,85 +4,85 @@ import pandas as pd
 # ---------------------------
 # 1) Parameter rename map (Updated based on provided DB export)
 # ---------------------------
-rename_map = {
-    # --- Carbon / Organische stof ---
-    "Anorg. koolstof (CaCO3) (% (m/m) ds)": "Kalk (CaCO3)",
-    "Anorganisch koolstof (als C) (g/kg ds)": "Kalk (CaCO3)",
-    "C-anorganisch (%)": "Kalk (CaCO3)",
-    "Koolzure kalk (%)": "Kalk (CaCO3)",
-
-    "C-organisch (%)": "Gehalte organische koolstof (TOC)",
-
-    "Organische stof (% (m/m) ds)": "Gehalte organische stof",
-    "Organische stof (%)": "Gehalte organische stof",
-
-    # --- Nutriënten (Concentraties voor regels) ---
-    "N-totale bodemvoorraad (mg N/kg)": "Stikstof totaal (N-Kjeldahl)",
-
-    "S-totale bodemvoorraad (mg S/kg)": "Zwavel totaal",
-    "S-plantbeschikbaar (mg S/kg)": "Zwavel beschikbaar",
-
-    # Fosfor
-    "P-bodemvoorraad (mg P/100 g)": "Fosfor totaal (destructie)",
-    "P-bodemvoorraad (mg P2O5/100 g)": "Fosfor totaal (destructie)",
-    "P-plantbeschikbaar (mg P/kg)": "Fosfor beschikbaar",
-
-    # Kalium
-    "K-bodemvoorraad (mmol+/kg)": "Kalium totaal",
-    "K-plantbeschikbaar (mg K/kg)": "Kalium beschikbaar",
-
-    # Overige kationen (CEC context)
-    "Ca-bodemvoorraad (mmol+/kg)": "Calcium totaal",
-    "Mg-bodemvoorraad (mmol+/kg)": "Magnesium totaal",
-
-    # pH
-    "Zuurgraad (pH)": "pH-waarde",
-    "Zuurgraad (pH-CaCl2) (pH unit)": "pH-waarde",  # Alternatief indien gebruikt
-
-    # --- Fracties / Textuur ---
-    # Lutum (< 2um)
-    "Klei (<2 µm) (%)": "Lutum (fractie < 2um)",
-    "Korrelgrootte < 2 µm, gravimetrisch (% (m/m) ds)": "Lutum (fractie < 2um)",
-    "Korrelgrootte < 2 µm, laser (% min. delen)": "Lutum (fractie < 2um)",  # Fallback
-
-    # Silt (2-63um, maar 2-50um komt vaak voor in landbouw)
-    "Silt (2-50 µm) (%)": "Silt (2um < fractie < 63um)",
-
-    # Zand (> 50/63um)
-    "Zand (>50 µm) (%)": "Zand (63um < fractie < 2mm)",
-
-    # Overig textuur (Mapping naar dichtstbijzijnde CBC definitie indien mogelijk)
-    "Korrelgrootte < 63 µm (% (m/m) ds)": "(63um < fractie < 250um)",
-    # Ruwe schatting, vaak 'fractie < 63' is totaal fijn
-
-    # --- Metalen ---
-    "Koper (Cu) (mg/kg ds)": "Koper totaal",
-    "Zink (Zn) (mg/kg ds)": "Zink totaal",
-
-    # --- Entries to drop / ignore (Landbouwkundige voorraden in kg/ha) ---
-    "N-totale bodemvoorraad (kg N/ha)": None,
-    "S-totale bodemvoorraad (kg S/ha)": None,
-    "P-bodemvoorraad (kg P/ha)": None,
-    "K-bodemvoorraad (kg K/ha)": None,
-    "Ca-bodemvoorraad (kg Ca/ha)": None,
-    "Mg-bodemvoorraad (kg Mg/ha)": None,
-    "Na-bodemvoorraad (kg Na/ha)": None,
-
-    "Aanvoer effectieve organische stof (gewasresten) (kg/ha)": None,
-    "Fosfaat (P2O5) - Bodemgericht Advies (kg/ha)": None,
-    "Kali (K2O) - Bodemgericht Advies (kg/ha)": None,
-
-    # --- Overige te negeren parameters ---
-    "Gloeirest (% (m/m) ds)": None,
-    "Droge stof (% (m/m))": None,
-    "Arseen (As) (mg/kg ds)": None,
-    "Barium (Ba) (mg/kg ds)": None,
-    "Cadmium (Cd) (mg/kg ds)": None,
-    "Chroom (Cr) (mg/kg ds)": None,
-    "Kwik (Hg) (mg/kg ds)": None,
-    "Lood (Pb) (mg/kg ds)": None,
-    "Nikkel (Ni) (mg/kg ds)": None,
-}
+# rename_map = {
+#     # --- Carbon / Organische stof ---
+#     "Anorg. koolstof (CaCO3) (% (m/m) ds)": "Kalk (CaCO3)",
+#     "Anorganisch koolstof (als C) (g/kg ds)": "Kalk (CaCO3)",
+#     "C-anorganisch (%)": "Kalk (CaCO3)",
+#     "Koolzure kalk (%)": "Kalk (CaCO3)",
+#
+#     "C-organisch (%)": "Gehalte organische koolstof (TOC)",
+#
+#     "Organische stof (% (m/m) ds)": "Gehalte organische stof",
+#     "Organische stof (%)": "Gehalte organische stof",
+#
+#     # --- Nutriënten (Concentraties voor regels) ---
+#     "N-totale bodemvoorraad (mg N/kg)": "Stikstof totaal (N-Kjeldahl)",
+#
+#     "S-totale bodemvoorraad (mg S/kg)": "Zwavel totaal",
+#     "S-plantbeschikbaar (mg S/kg)": "Zwavel beschikbaar",
+#
+#     # Fosfor
+#     "P-bodemvoorraad (mg P/100 g)": "Fosfor totaal (destructie)",
+#     "P-bodemvoorraad (mg P2O5/100 g)": "Fosfor totaal (destructie)",
+#     "P-plantbeschikbaar (mg P/kg)": "Fosfor beschikbaar",
+#
+#     # Kalium
+#     "K-bodemvoorraad (mmol+/kg)": "Kalium totaal",
+#     "K-plantbeschikbaar (mg K/kg)": "Kalium beschikbaar",
+#
+#     # Overige kationen (CEC context)
+#     "Ca-bodemvoorraad (mmol+/kg)": "Calcium totaal",
+#     "Mg-bodemvoorraad (mmol+/kg)": "Magnesium totaal",
+#
+#     # pH
+#     "Zuurgraad (pH)": "pH-waarde",
+#     "Zuurgraad (pH-CaCl2) (pH unit)": "pH-waarde",  # Alternatief indien gebruikt
+#
+#     # --- Fracties / Textuur ---
+#     # Lutum (< 2um)
+#     "Klei (<2 µm) (%)": "Lutum (fractie < 2um)",
+#     "Korrelgrootte < 2 µm, gravimetrisch (% (m/m) ds)": "Lutum (fractie < 2um)",
+#     "Korrelgrootte < 2 µm, laser (% min. delen)": "Lutum (fractie < 2um)",  # Fallback
+#
+#     # Silt (2-63um, maar 2-50um komt vaak voor in landbouw)
+#     "Silt (2-50 µm) (%)": "Silt (2um < fractie < 63um)",
+#
+#     # Zand (> 50/63um)
+#     "Zand (>50 µm) (%)": "Zand (63um < fractie < 2mm)",
+#
+#     # Overig textuur (Mapping naar dichtstbijzijnde CBC definitie indien mogelijk)
+#     "Korrelgrootte < 63 µm (% (m/m) ds)": "(63um < fractie < 250um)",
+#     # Ruwe schatting, vaak 'fractie < 63' is totaal fijn
+#
+#     # --- Metalen ---
+#     "Koper (Cu) (mg/kg ds)": "Koper totaal",
+#     "Zink (Zn) (mg/kg ds)": "Zink totaal",
+#
+#     # --- Entries to drop / ignore (Landbouwkundige voorraden in kg/ha) ---
+#     "N-totale bodemvoorraad (kg N/ha)": None,
+#     "S-totale bodemvoorraad (kg S/ha)": None,
+#     "P-bodemvoorraad (kg P/ha)": None,
+#     "K-bodemvoorraad (kg K/ha)": None,
+#     "Ca-bodemvoorraad (kg Ca/ha)": None,
+#     "Mg-bodemvoorraad (kg Mg/ha)": None,
+#     "Na-bodemvoorraad (kg Na/ha)": None,
+#
+#     "Aanvoer effectieve organische stof (gewasresten) (kg/ha)": None,
+#     "Fosfaat (P2O5) - Bodemgericht Advies (kg/ha)": None,
+#     "Kali (K2O) - Bodemgericht Advies (kg/ha)": None,
+#
+#     # --- Overige te negeren parameters ---
+#     "Gloeirest (% (m/m) ds)": None,
+#     "Droge stof (% (m/m))": None,
+#     "Arseen (As) (mg/kg ds)": None,
+#     "Barium (Ba) (mg/kg ds)": None,
+#     "Cadmium (Cd) (mg/kg ds)": None,
+#     "Chroom (Cr) (mg/kg ds)": None,
+#     "Kwik (Hg) (mg/kg ds)": None,
+#     "Lood (Pb) (mg/kg ds)": None,
+#     "Nikkel (Ni) (mg/kg ds)": None,
+# }
 
 required_cols = [
     "Mineralen delen ten opzichte DS",
@@ -133,42 +133,18 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection, custom_ma
       - detail_df: DataFrame with per-rule details (Target/Eigenschap, ranges, values, pass/fail)
     """
 
-    # --- DEBUG SECTION ---
-    print("\n--- DEBUG: run_cbc START ---")
-    print(f"Sample: {sample_wide_df['SampleID'].iloc[0]}")
-
-    # 1. Print existing columns in the dataframe
-    print("DataFrame Columns (Before Rename):")
-    for col in sample_wide_df.columns:
-        print(f"  '{col}'")
-
-    # 2. Print what we are trying to map
+    # --- 0. Apply Mappings (Single Pass with Collision Protection) ---
     if custom_mappings:
-        print("Custom Mappings Keys:")
-        for key, val in custom_mappings.items():
-            print(f"  '{key}' -> '{val}'")
+        # 1. Identify targets
+        new_targets = list(custom_mappings.values())
 
-            # Check if this key actually exists in the columns
-            if key in sample_wide_df.columns:
-                print(f"    [MATCH] '{key}' found in DF.")
-            else:
-                print(f"    [FAIL] '{key}' NOT found in DF.")
-    else:
-        print("No custom mappings provided.")
-    print("--- DEBUG: run_cbc END ---\n")
-    # ---------------------
+        # 2. Collision Check: Drop placeholders (NaN) before renaming
+        collisions = [col for col in new_targets if col in sample_wide_df.columns]
+        if collisions:
+            sample_wide_df = sample_wide_df.drop(columns=collisions)
 
-    # --- 0. Apply Mappings ---
-
-    # Step A: Apply Custom Database Mappings (Exact Match)
-    # The keys in custom_mappings are now strictly "Parameter (Unit)",
-    # which matches exactly how load_sample_wide constructs the columns.
-    if custom_mappings:
+        # 3. Rename
         sample_wide_df = sample_wide_df.rename(columns=custom_mappings)
-
-    # Step B: Apply Hardcoded Legacy Map (rename_map)
-    # This acts as a fallback or for legacy files not using the new mapper
-    sample_wide_df = sample_wide_df.rename(columns=rename_map)
 
     def get_table(name: str):
         cs = db_conn.execute(f"SELECT * FROM {name}")

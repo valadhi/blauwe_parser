@@ -5,7 +5,7 @@ import sqlite3
 
 import streamlit as st
 import pandas as pd
-import numpy as np
+from db.samples_store import get_conn as get_samples_conn, load_sample_wide, get_combined_mappings
 
 # Make parent folder importable
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -80,10 +80,12 @@ else:
     result_rows = []
     matrices = {}
     breakdowns = {}
-    db_mappings = get_parameter_mappings(samples_conn)
 
     for pdf_id, sample_name in selected_samples:
         wide = load_sample_wide(samples_conn, user_id, pdf_id, sample_name, required_cols)
+
+        combined_mappings = get_combined_mappings(samples_conn, user_id, pdf_id)
+
         if wide is None or wide.empty:
             st.warning(f"No wide data reconstructed for sample {sample_name} in {pdf_id}, skipping.")
             continue
@@ -91,7 +93,7 @@ else:
         sample_label = f"{pdf_id} — {sample_name}"
         wide["SampleID"] = sample_label
 
-        res_df, pf_df, detail_df = run_cbc(wide, db_conn, custom_mappings=db_mappings)
+        res_df, pf_df, detail_df = run_cbc(wide, db_conn, custom_mappings=combined_mappings)
         result_rows.append(res_df)
         matrices[sample_label] = pf_df
         breakdowns[sample_label] = detail_df

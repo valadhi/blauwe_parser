@@ -3,13 +3,18 @@ import os
 import sys
 import sqlite3
 import streamlit as st
-import pandas as pd
 
 # Make parent folder importable
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from auth_config import get_authenticator
-from db.samples_store import get_conn as get_samples_conn, get_parameter_mappings, update_parameter_mapping
+# [FIX 1] Clean imports: Import the new specific mapping getters
+from db.samples_store import (
+    get_conn as get_samples_conn,
+    update_parameter_mapping,
+    get_global_mappings,
+    get_local_mappings
+)
 
 st.set_page_config(page_title="Parameter Mapper", layout="wide")
 
@@ -64,7 +69,6 @@ selected_target_id = targets[selected_target_name]
 # --- 3. DATA FETCHING ---
 
 # A. Get required properties (Eigenschappen) for this Target where Weight > 0
-# We join HEEFT, TARGET, and EIGENSCHAP
 req_query = """
     SELECT E.Name, H.Weight
     FROM HEEFT H
@@ -76,7 +80,6 @@ req_rows = rules_conn.execute(req_query, (selected_target_id,)).fetchall()
 required_props = [r[0] for r in req_rows]
 
 # B. Get available parameters from the selected PDF
-# We grab unique parameters extracted from the file
 param_query = """
     SELECT DISTINCT parameter, unit 
     FROM extracted_samples 
@@ -84,18 +87,25 @@ param_query = """
     ORDER BY parameter, unit
 """
 param_rows = samples_conn.execute(param_query, (user_id, selected_pdf)).fetchall()
+
+
 # Helper function to match load_sample_wide logic exactly
 def format_full_id(param, unit):
-    # Logic must match db/samples_store.py -> load_sample_wide
-    if unit and unit.strip():
-        return f"{param} ({unit})"
-    return param
+    p = str(param).strip()
+    u = str(unit).strip() if unit else ""
+    if u: return f"{p} ({u})"
+    return p
+
 
 # Create the list of options using the full ID
 available_params = [format_full_id(r[0], r[1]) for r in param_rows]
 
-# C. Get current saved mappings
-current_mappings = get_parameter_mappings(samples_conn)
+# C. Get current saved mappings (Hybrid Logic)
+# [FIX 2] Fetch both maps and merge them. Local overwrites Global.
+global_map = get_global_mappings(samples_conn)
+local_map = get_local_mappings(samples_conn, user_id, selected_pdf)
+
+combined_map = {**global_map, **local_map}
 
 # --- 4. MAPPING INTERFACE ---
 
@@ -108,10 +118,8 @@ st.info(
 # Create a container for the mapping rows
 mapping_container = st.container()
 
-# Pre-calculate inverse mapping for display: which source param is currently mapped to this target?
-# current_mappings is {source: target}. We need {target: source} for the selectbox default.
-# Note: One source maps to one target. Multiple sources *could* theoretically map to one target, but usually not.
-target_to_source = {v: k for k, v in current_mappings.items()}
+# [FIX 3] Use combined_map to determine what is currently active
+target_to_source = {v: k for k, v in combined_map.items()}
 
 with mapping_container:
     # Header
@@ -129,10 +137,9 @@ with mapping_container:
         col1.write(f"**{prop}**")
 
         # 2. Dropdown to select source parameter
-        # Determine index: if a mapping exists for this property, find the source param in the available list
         active_source = target_to_source.get(prop)
 
-        # Options: add a "Select..." placeholder and the option to Clear/Reset
+        # Options: add a "Select..." placeholder
         options = ["(Unmapped)"] + available_params
 
         # Calculate index
@@ -150,29 +157,35 @@ with mapping_container:
         )
 
         # 3. Status/Action
-        mapped_val = None
         if selected_source != "(Unmapped)":
-            # Check if this source is actually present in the current PDF
             is_present = selected_source in available_params
+
+            # [FIX 4] Check specific logic: Is this defined in the Local Map?
+            # We look if the property exists in local_map values AND if the key matches selected source
+            is_local = prop in local_map.values() and local_map.get(selected_source) == prop
+
             if is_present:
-                col3.success("Mapped")
+                if is_local:
+                    col3.info("Mapped (Manual)")  # Blue badge for overrides
+                else:
+                    col3.success("Mapped (Global)")  # Green badge for defaults
             else:
                 col3.warning("Mapped (Not in PDF)")
 
             # Logic to save to DB if changed
             if selected_source != active_source:
-                update_parameter_mapping(samples_conn, selected_source, prop)
+                update_parameter_mapping(samples_conn, user_id, selected_pdf, selected_source, prop)
                 st.toast(f"Saved: {selected_source} -> {prop}")
-                # We force a rerun to update the 'current_mappings' dictionary for other rows
-                # strictly speaking optional, but keeps state clean
-                # st.rerun()
+                # Optional: st.rerun() to refresh state immediately
         else:
             col3.caption("Missing")
-            # If it was previously mapped, remove it
+
+            # If it was previously mapped (active_source was not None), we need to reset it.
+            # "Resetting" means removing the LOCAL override.
             if active_source is not None:
-                update_parameter_mapping(samples_conn, active_source, "RESET")
+                update_parameter_mapping(samples_conn, user_id, selected_pdf, active_source, "RESET")
                 st.toast(f"Removed mapping for {prop}")
-                # st.rerun()
+                # Optional: st.rerun()
 
 st.divider()
 
@@ -180,7 +193,8 @@ st.divider()
 st.markdown("### Unused Extracted Parameters")
 st.write("The following parameters were found in the PDF but are not currently mapped to any rule property:")
 
-mapped_sources = set(current_mappings.keys())
+# [FIX 5] Use combined_map to calculate unused params
+mapped_sources = set(combined_map.keys())
 unused = [p for p in available_params if p not in mapped_sources]
 
 if unused:
