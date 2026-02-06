@@ -11,7 +11,7 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from auth_config import get_authenticator
-from db.samples_store import get_conn as get_samples_conn, load_sample_wide
+from db.samples_store import get_conn as get_samples_conn, load_sample_wide, get_parameter_mappings
 from visuals.visuals import show_sample_visuals
 from cbc.cbc_core import run_cbc, required_cols
 
@@ -79,6 +79,8 @@ else:
 
     result_rows = []
     matrices = {}
+    breakdowns = {}
+    db_mappings = get_parameter_mappings(samples_conn)
 
     for pdf_id, sample_name in selected_samples:
         wide = load_sample_wide(samples_conn, user_id, pdf_id, sample_name, required_cols)
@@ -89,9 +91,10 @@ else:
         sample_label = f"{pdf_id} — {sample_name}"
         wide["SampleID"] = sample_label
 
-        res_df, pf_df = run_cbc(wide, db_conn)
+        res_df, pf_df, detail_df = run_cbc(wide, db_conn, custom_mappings=db_mappings)
         result_rows.append(res_df)
         matrices[sample_label] = pf_df
+        breakdowns[sample_label] = detail_df
 
     db_conn.close()
     samples_conn.close()
@@ -100,4 +103,4 @@ else:
         st.warning("No CBC results could be computed for the selected samples.")
     else:
         result = pd.concat(result_rows, ignore_index=True)
-        show_sample_visuals(result, matrices)
+        show_sample_visuals(result, matrices, breakdowns)

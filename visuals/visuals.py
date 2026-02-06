@@ -6,7 +6,82 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
-def show_sample_visuals(result: pd.DataFrame, matrices: dict[str, pd.DataFrame]):
+def _status_label(passed: int) -> str:
+    if passed == 1:
+        return "Pass"
+    if passed == 0:
+        return "Fail"
+    return "Missing"
+
+
+def _status_color(passed: int) -> str:
+    if passed == 1:
+        return "#2ca02c"
+    if passed == 0:
+        return "#d62728"
+    return "#7f7f7f"
+
+
+def _render_target_breakdown(target_df: pd.DataFrame, sample_name: str, target_name: str):
+    display_df = target_df.copy()
+    display_df["Status"] = display_df["Passed"].apply(_status_label)
+    display_df["SampleValue"] = display_df["SampleValue"].replace(-1, np.nan)
+
+    st.markdown(f"**{target_name}**")
+    st.dataframe(
+        display_df[
+            ["EigName", "SampleValue", "Min", "Max", "Weight", "Status"]
+        ].rename(columns={"EigName": "Eigenschap"}),
+        use_container_width=True,
+    )
+
+    with_limits = display_df[display_df["Min"].notna() & display_df["Max"].notna()].copy()
+    if with_limits.empty:
+        st.info("No acceptable limits defined for this target.")
+        return
+
+    with_limits["RangeWidth"] = with_limits["Max"] - with_limits["Min"]
+    with_limits["PlotValue"] = with_limits["SampleValue"]
+    marker_colors = [_status_color(val) for val in with_limits["Passed"]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=with_limits["EigName"],
+        x=with_limits["RangeWidth"],
+        base=with_limits["Min"],
+        orientation="h",
+        marker=dict(color="rgba(55, 128, 191, 0.3)"),
+        name="Acceptable range",
+        hovertemplate="Min: %{base}<br>Max: %{x+base}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        y=with_limits["EigName"],
+        x=with_limits["PlotValue"],
+        mode="markers",
+        marker=dict(color=marker_colors, size=10),
+        name="Sample value",
+        hovertemplate="Value: %{x}<extra></extra>",
+    ))
+
+    x_min = np.nanmin([with_limits["Min"].min(), with_limits["PlotValue"].min()])
+    x_max = np.nanmax([with_limits["Max"].max(), with_limits["PlotValue"].max()])
+    padding = (x_max - x_min) * 0.1 if x_max > x_min else 1
+
+    fig.update_layout(
+        title=f"{target_name} – value ranges ({sample_name})",
+        xaxis=dict(range=[x_min - padding, x_max + padding]),
+        yaxis=dict(autorange="reversed"),
+        margin=dict(l=120, r=30, t=50, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def show_sample_visuals(
+    result: pd.DataFrame,
+    matrices: dict[str, pd.DataFrame],
+    breakdowns: dict[str, pd.DataFrame] | None = None,
+):
     """
     Render tabs with one tab per sample + optional 'Average' tab.
     Uses Plotly for radar, heatmap, and top-N bar chart.
@@ -96,6 +171,24 @@ def show_sample_visuals(result: pd.DataFrame, matrices: dict[str, pd.DataFrame])
                 bar_fig.update_yaxes(range=[0, 1])
                 st.plotly_chart(bar_fig, use_container_width=True)
 
+                breakdown_df = (breakdowns or {}).get(sample_name)
+                if breakdown_df is not None and not breakdown_df.empty:
+                    st.subheader("Score breakdown")
+                    targets = (
+                        breakdown_df["TargetName"]
+                        .dropna()
+                        .unique()
+                        .tolist()
+                    )
+                    for target_name in targets:
+                        target_df = breakdown_df[breakdown_df["TargetName"] == target_name]
+                        if target_df.empty:
+                            continue
+                        with st.expander(f"{target_name} details", expanded=False):
+                            _render_target_breakdown(target_df, sample_name, target_name)
+                else:
+                    st.info("No detailed breakdown available for this sample.")
+
             # --- Final "Average" tab ---
             else:
                 avg_vals = result[use_cols].astype(float).mean(axis=0)
@@ -172,6 +265,5 @@ def show_sample_visuals(result: pd.DataFrame, matrices: dict[str, pd.DataFrame])
                 )
                 bar_fig.update_yaxes(range=[0, 1])
                 st.plotly_chart(bar_fig, use_container_width=True)
-
 
 

@@ -1,12 +1,5 @@
-import os
-import re
 import sqlite3
-from datetime import datetime
-
-import numpy as np
 import pandas as pd
-import pdfplumber
-import streamlit as st
 
 # ---------------------------
 # 1) Parameter rename map (Updated based on provided DB export)
@@ -123,23 +116,58 @@ required_cols = [
     "Zink totaal",
 ]
 
-
 # ---------------------------
 # 6) CBC rule engine
 # ---------------------------
-def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
+def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection, custom_mappings: dict = None):
     """
     Evaluate CBC rules for a single-sample wide dataframe.
 
+    Args:
+        sample_wide_df: The data (one row).
+        db_conn: Connection to rules DB.
+        custom_mappings: Dict { 'extracted_col_name': 'standard_eigenschap_name' }
     Returns:
       - results_df: 1-row DataFrame with columns [<targets...>, SampleID, DateProcessed]
       - compact_matrix: DataFrame EigName x TargetName with values {-1, 0, 1}
+      - detail_df: DataFrame with per-rule details (Target/Eigenschap, ranges, values, pass/fail)
     """
 
-    # --- 0. Apply Rename Map ---
-    # The input columns are in the format "Parameter (Unit)".
-    # We rename them here to the internal "CBC Name" expected by the rules database.
-    # Columns not found in the map remain unchanged.
+    # --- DEBUG SECTION ---
+    print("\n--- DEBUG: run_cbc START ---")
+    print(f"Sample: {sample_wide_df['SampleID'].iloc[0]}")
+
+    # 1. Print existing columns in the dataframe
+    print("DataFrame Columns (Before Rename):")
+    for col in sample_wide_df.columns:
+        print(f"  '{col}'")
+
+    # 2. Print what we are trying to map
+    if custom_mappings:
+        print("Custom Mappings Keys:")
+        for key, val in custom_mappings.items():
+            print(f"  '{key}' -> '{val}'")
+
+            # Check if this key actually exists in the columns
+            if key in sample_wide_df.columns:
+                print(f"    [MATCH] '{key}' found in DF.")
+            else:
+                print(f"    [FAIL] '{key}' NOT found in DF.")
+    else:
+        print("No custom mappings provided.")
+    print("--- DEBUG: run_cbc END ---\n")
+    # ---------------------
+
+    # --- 0. Apply Mappings ---
+
+    # Step A: Apply Custom Database Mappings (Exact Match)
+    # The keys in custom_mappings are now strictly "Parameter (Unit)",
+    # which matches exactly how load_sample_wide constructs the columns.
+    if custom_mappings:
+        sample_wide_df = sample_wide_df.rename(columns=custom_mappings)
+
+    # Step B: Apply Hardcoded Legacy Map (rename_map)
+    # This acts as a fallback or for legacy files not using the new mapper
     sample_wide_df = sample_wide_df.rename(columns=rename_map)
 
     def get_table(name: str):
@@ -171,10 +199,13 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
     target_scores = {str(t["TargetID"]): 0.0 for t in target}
     target_max = {str(t["TargetID"]): 0.0 for t in target}
     pass_fail_matrix = []
+    target_map = {str(t["TargetID"]): t["Name"] for t in target}
+    eig_map = {str(e["EigID"]): e["Name"] for e in eigenschap}
 
-    # --- evaluate rules (only Weight == 1, as in your original) ---
+    # --- evaluate rules (non-zero weights only) ---
     for h in heeft:
-        if h["Weight"] != 1:
+        weight = h["Weight"]
+        if weight == 0:
             continue
 
         tid = str(h["TargetID"])
@@ -182,34 +213,29 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
         s = sample.get(eig_id, -1)
 
         # skip missing sentinel (-1) completely
-        if s == -1:
-            passed = -1
-            pass_fail_matrix.append({
-                "TargetID": h["TargetID"],
-                "EigID": h["EigID"],
-                "EigName": next(e["Name"] for e in eigenschap if e["EigID"] == h["EigID"]),
-                "SampleValue": s,
-                "Passed": passed,
-            })
-            continue
-
         min_val = h["Min"]
         max_val = h["Max"]
 
-        # Only count this rule in the denominator if it's actually applicable
-        target_max[tid] += h["Weight"]
-
-        if (min_val is not None) and (max_val is not None) and (min_val <= s <= max_val):
-            target_scores[tid] += h["Weight"]
+        if s == -1:
+            passed = -1
+        elif (min_val is not None) and (max_val is not None) and (min_val <= s <= max_val):
+            target_scores[tid] += weight
             passed = 1
         else:
             passed = 0
 
+        if s != -1:
+            target_max[tid] += weight
+
         pass_fail_matrix.append({
             "TargetID": h["TargetID"],
             "EigID": h["EigID"],
-            "EigName": next(e["Name"] for e in eigenschap if e["EigID"] == h["EigID"]),
+            "TargetName": target_map.get(tid),
+            "EigName": eig_map.get(eig_id),
             "SampleValue": s,
+            "Min": min_val,
+            "Max": max_val,
+            "Weight": weight,
             "Passed": passed,
         })
 
@@ -229,10 +255,10 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
     # --- build pass/fail matrix as in your original code ---
     pass_fail_df = pd.DataFrame(pass_fail_matrix)
     if pass_fail_df.empty:
-        return results_df, pd.DataFrame()
+        return results_df, pd.DataFrame(), pd.DataFrame()
 
-    target_map = {t["TargetID"]: t["Name"] for t in target}
-    pass_fail_df["TargetName"] = pass_fail_df["TargetID"].map(target_map)
+    if "TargetName" not in pass_fail_df.columns:
+        pass_fail_df["TargetName"] = pass_fail_df["TargetID"].map(target_map)
 
     compact_matrix = pass_fail_df.pivot_table(
         index="EigName",
@@ -241,4 +267,18 @@ def run_cbc(sample_wide_df: pd.DataFrame, db_conn: sqlite3.Connection):
         aggfunc="first",
     ).fillna(-1).astype(int)
 
-    return results_df, compact_matrix
+    detail_df = pass_fail_df[
+        [
+            "TargetID",
+            "TargetName",
+            "EigID",
+            "EigName",
+            "Weight",
+            "Min",
+            "Max",
+            "SampleValue",
+            "Passed",
+        ]
+    ].copy()
+
+    return results_df, compact_matrix, detail_df

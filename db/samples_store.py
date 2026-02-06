@@ -33,8 +33,42 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         """
     )
 
+    # --- NEW TABLE FOR MAPPINGS ---
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS parameter_mappings (
+            source_param TEXT PRIMARY KEY,
+            target_eigenschap TEXT NOT NULL
+        )
+        """
+    )
+
     conn.commit()
 
+
+# Add this helper function at the top or inside the file
+def clean_value_string(x):
+    """
+    Cleans a value string to make it numeric.
+    Handles '<' signs (e.g. '<0.1' -> 0.1) and comma decimals ('0,5' -> 0.5).
+    """
+    if x is None:
+        return None
+
+    # If it's already a number, return as string or keep as is
+    if isinstance(x, (int, float)):
+        return str(x)
+
+    s = str(x).strip()
+
+    # 1. Handle less-than signs (common in lab results)
+    # We treat "<0.1" as "0.1". (Adjust this logic if you need factor 0.7)
+    s = s.replace("<", "").replace(">", "")
+
+    # 2. Handle Dutch decimal commas
+    s = s.replace(",", ".")
+
+    return s
 
 def save_sample_from_wide(
     conn: sqlite3.Connection,
@@ -115,6 +149,27 @@ def save_extraction_results(
     conn.commit()
 
 
+def get_parameter_mappings(conn: sqlite3.Connection) -> dict[str, str]:
+    """Retrieve all custom mappings as {source_param: target_eigenschap}."""
+    cur = conn.execute("SELECT source_param, target_eigenschap FROM parameter_mappings")
+    return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def update_parameter_mapping(conn: sqlite3.Connection, source_param: str, target_eigenschap: str):
+    """Insert or update a mapping."""
+    if not source_param or not target_eigenschap:
+        return
+
+    # If the user selects "None" or empty, we might want to delete the mapping
+    if target_eigenschap == "RESET":
+        conn.execute("DELETE FROM parameter_mappings WHERE source_param = ?", (source_param,))
+    else:
+        conn.execute(
+            "INSERT OR REPLACE INTO parameter_mappings (source_param, target_eigenschap) VALUES (?, ?)",
+            (source_param, target_eigenschap)
+        )
+    conn.commit()
+
 def load_sample_wide(
     conn: sqlite3.Connection,
     user_id: str,
@@ -139,15 +194,21 @@ def load_sample_wide(
         return None
 
     df_long = pd.DataFrame(rows, columns=["Parameter", "Unit", "Value"])
+
+    # DEBUG PRINT
+    print("DEBUG: Raw DB Rows sample:")
+    print(df_long.head())
+
     df_long["Parameter"] = df_long.apply(
         lambda r: f"{r['Parameter']} ({r['Unit']})" if pd.notna(r["Unit"]) and r["Unit"] != "" else r["Parameter"],
         axis=1,
     )
+    df_long["Value"] = df_long["Value"].apply(clean_value_string)
     df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
     df_long["SampleID"] = sample_id
 
     # Pivot to wide: one row, Parameter names as columns
-    wide = df_long.pivot(index="SampleID", columns="Parameter", values="Value").reset_index()
+    wide = df_long.pivot_table(index="SampleID", columns="Parameter", values="Value", aggfunc='first').reset_index()
 
     # Ensure all required CBC columns exist
     for col in required_cols:
