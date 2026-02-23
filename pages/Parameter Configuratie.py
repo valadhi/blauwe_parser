@@ -3,11 +3,12 @@ import os
 import sys
 import sqlite3
 import streamlit as st
+from app_common import setup_page
 
 # Make parent folder importable
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# from auth_config import get_authenticator
+from auth_config import get_authenticator
 from db.samples_store import (
     get_conn as get_samples_conn,
     update_parameter_mapping,
@@ -15,40 +16,30 @@ from db.samples_store import (
     get_local_mappings
 )
 
-st.set_page_config(page_title="Configuration", layout="wide")
+st.set_page_config(page_title="Parameter Configuratie", layout="wide",
+    page_icon="user_profile_logos/bagger_consortium_logo.png")
 
-# --- AUTH CHECK ---
-# authenticator, config = get_authenticator()
-# try:
-#     authenticator.login(location="unrendered")
-# except Exception:
-#     pass
+# 1. Run the page setup function
+if not setup_page():
+    st.stop()
 
-# if not st.session_state.get("authentication_status"):
-#     st.warning("Please log in from the main page.")
-#     st.stop()
-
-
-if "authentication_status" not in st.session_state:
-    st.session_state["authentication_status"] = True
-    st.session_state["username"] = "default_user"
 
 
 user_id = st.session_state.get("username")
-st.title("⚙️ Parameter Configuration")
+st.title("Parameter Configuratie")
 
 # --- DATABASE CONNECTIONS ---
 samples_conn = get_samples_conn()
 bagger_db_path = "baggerTool_v7.db"
 
 if not os.path.exists(bagger_db_path):
-    st.error(f"Rules database '{bagger_db_path}' not found.")
+    st.error(f"Regeldatabase '{bagger_db_path}' niet gevonden.")
     st.stop()
 
 rules_conn = sqlite3.connect(bagger_db_path)
 
 # --- 1. SELECT PDF ---
-st.sidebar.header("Context Selection")
+st.sidebar.header("Context Selectie")
 
 pdf_query = samples_conn.execute(
     "SELECT DISTINCT pdf_id FROM extracted_samples WHERE user_id = ? ORDER BY pdf_id",
@@ -57,16 +48,16 @@ pdf_query = samples_conn.execute(
 pdf_list = [r[0] for r in pdf_query.fetchall()]
 
 if not pdf_list:
-    st.info("No extracted PDFs found.")
+    st.info("Geen geëxtraheerde PDF's gevonden.")
     st.stop()
 
-selected_pdf = st.sidebar.selectbox("Active Report (PDF)", pdf_list)
+selected_pdf = st.sidebar.selectbox("Actief Rapport (PDF)", pdf_list)
 
 # --- 2. SELECT USAGE TARGET ---
 target_query = rules_conn.execute("SELECT TargetID, Name FROM TARGET ORDER BY Name")
 targets = {r[1]: r[0] for r in target_query.fetchall()}
 
-selected_target_name = st.sidebar.selectbox("Usage Scenario (Target)", list(targets.keys()))
+selected_target_name = st.sidebar.selectbox("Gebruiksscenario (Doel)", list(targets.keys()))
 selected_target_id = targets[selected_target_name]
 
 # --- 3. DATA FETCHING ---
@@ -122,18 +113,17 @@ def get_best_source_for_target(target_name, local_map, global_map, available_set
 
 
 # --- 4. MAPPING INTERFACE ---
-
-st.markdown(f"### Mapping Rules for: **{selected_target_name}**")
-st.caption("Link the extracted parameters from your PDF to the properties required by the calculation rules.")
+st.markdown(f"### Koppelingsregels voor: **{selected_target_name}**")
+st.caption("Koppel de geëxtraheerde parameters uit uw PDF aan de eigenschappen die vereist zijn voor de rekenregels.")
 
 mapping_container = st.container()
 
 with mapping_container:
-    # [UPDATED HEADER] Added "Specs" column
+    # [HEADER]
     c1, c2, c3, c4 = st.columns([3, 1.5, 3, 1.5])
-    c1.markdown("**Required Property**")
-    c2.markdown("**Specs (Min - Max)**")
-    c3.markdown("**Extracted Parameter**")
+    c1.markdown("**Vereiste Eigenschap**")
+    c2.markdown("**Specificaties (Min - Max)**")
+    c3.markdown("**Geëxtraheerde Parameter**")
     c4.markdown("**Status**")
 
     st.divider()
@@ -153,7 +143,7 @@ with mapping_container:
         else:
             range_str = "-"
 
-        # [UPDATED COLUMNS]
+        # [COLUMNS]
         col1, col2, col3, col4 = st.columns([3, 1.5, 3, 1.5])
 
         # 1. Property Name
@@ -164,7 +154,7 @@ with mapping_container:
 
         # 3. Dropdown
         active_source, source_type = get_best_source_for_target(prop_name, local_map, global_map, available_params_set)
-        options = ["(Unmapped)"] + available_params
+        options = ["(Niet gekoppeld)"] + available_params
 
         try:
             current_index = options.index(active_source) if active_source in options else 0
@@ -172,7 +162,7 @@ with mapping_container:
             current_index = 0
 
         selected_source = col3.selectbox(
-            f"Select map for {prop_name}",
+            f"Selecteer koppeling voor {prop_name}",
             options,
             index=current_index,
             key=f"sel_{prop_name}",
@@ -180,24 +170,24 @@ with mapping_container:
         )
 
         # 4. Status Badge
-        if selected_source != "(Unmapped)":
+        if selected_source != "(Niet gekoppeld)":
             # Logic to determine badge color
             if source_type == "Manual" or (source_type == "Global" and selected_source != active_source):
                 if selected_source != active_source:
-                    col4.info("Saved")
+                    col4.info("Opgeslagen")
                 elif source_type == "Manual":
-                    col4.info("Manual")
+                    col4.info("Handmatig")
                 else:
-                    col4.success("Global")
+                    col4.success("Globaal")
             elif source_type == "Global":
-                col4.success("Global")
+                col4.success("Globaal")
             else:
-                col4.info("Manual")
+                col4.info("Handmatig")
 
             # Save Logic
             if selected_source != active_source:
                 update_parameter_mapping(samples_conn, user_id, selected_pdf, selected_source, prop_name)
-                st.toast(f"Saved: {selected_source}")
+                st.toast(f"Opgeslagen: {selected_source}")
                 local_map[selected_source] = prop_name
 
         else:
@@ -206,11 +196,9 @@ with mapping_container:
             # Reset Logic
             if active_source is not None and source_type == "Manual":
                 update_parameter_mapping(samples_conn, user_id, selected_pdf, active_source, "RESET")
-                st.toast(f"Unmapped: {prop_name}")
+                st.toast(f"Ontkoppeld: {prop_name}")
                 if active_source in local_map:
                     del local_map[active_source]
-
-# Removed "Unused Extracted Parameters" section as requested
 
 samples_conn.close()
 rules_conn.close()

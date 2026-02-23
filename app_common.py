@@ -1,61 +1,68 @@
-import re
-import numpy as np
-import pandas as pd
-from cbc.cbc_core import rename_map, required_cols
-from datetime import datetime
-
-def normalize_id(s: str) -> str:
-    """Normalize sample identifiers like 'BW23S1' from noisy text/filenames."""
-    if s is None:
-        return ""
-    s = str(s).upper().strip()
-    # Prefer canonical pattern BW<digits>S<digits> if present
-    m = re.search(r"(BW\d+S\d+)", s)
-    if m:
-        return m.group(1)
-    # Fallback: strip non-alphanumerics
-    return re.sub(r"[^A-Z0-9]+", "", s)
-
-def combine_data(particles_df, sample_df, sample_name):
-    # 1) strict match – works for BWxxSyy and for exact ids
-    matching_cols = [c for c in particles_df.columns if c.startswith(sample_name)]
-
-    # 2) fallback: MV-prefix match for Leiden Type B
-    if not matching_cols:
-        m = re.match(r"(MV\d+)", sample_name)
-        if m:
-            prefix = m.group(1)
-            matching_cols = [c for c in particles_df.columns if c.startswith(prefix)]
-
-    if not matching_cols:
-        raise ValueError(f"No matching particle column for sample prefix '{sample_name}'")
-
-    if len(matching_cols) > 1:
-        print(f"Warning: multiple particle columns for '{sample_name}': {matching_cols}. Using the first one.")
-
-    matched_col = matching_cols[0]
-
-    part = particles_df[["Parameter", matched_col]].rename(columns={matched_col: sample_name})
-    combined = pd.concat([part, sample_df], ignore_index=True)
-    return combined, sample_name
+import streamlit as st
+import os
+from auth_config import get_authenticator  # Assuming this is where it comes from
 
 
-def reshape_cbc(input_df, sample_name):
-    df = input_df.copy()
-    df[sample_name] = pd.to_numeric(df[sample_name], errors="coerce")
+def setup_page():
+    """
+    Acts as a gatekeeper for all pages.
+    Loads CSS, handles authentication, sets the logo, and adds a logout button.
+    Returns True if the user is authenticated, False otherwise.
+    """
+    # 1. Load our custom CSS
+    try:
+        with open("assets/style.css", "r") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        pass
 
-    df["Parameter"] = df["Parameter"].replace(rename_map)
-    df = df.dropna(subset=["Parameter"])
+    # 2. Initialize the authenticator
+    authenticator, config = get_authenticator()
 
-    df = df.groupby("Parameter", as_index=False)[sample_name].mean()
+    # 3. Render the login widget
+    try:
+        authenticator.login()
+    except Exception as e:
+        st.error(e)
 
-    wide = df.set_index("Parameter").T
+    # 4. Check the authentication status
+    auth_status = st.session_state.get("authentication_status")
 
-    for col in required_cols:
-        if col not in wide.columns:
-            wide[col] = np.nan
+    if auth_status:
+        # --- USER IS LOGGED IN ---
+        user_id = st.session_state.get("username", "cbc_admin")
+        logo_path = f"user_profile_logos/{user_id}.svg"
 
-    wide["SampleID"] = sample_name
-    wide["DateProcessed"] = datetime.now().strftime("%Y-%m-%d")
+        # Safely set the logo (fallback to admin if file is missing)
+        if os.path.exists(logo_path):
+            st.logo(logo_path, size="large")
+        else:
+            st.logo("user_profile_logos/cbc_admin.svg", size="large")
 
-    return wide.reset_index(drop=True)
+        # Put a logout button at the bottom of the sidebar automatically
+        with st.sidebar:
+            # st.divider()
+            authenticator.logout("Logout", "sidebar")
+
+            # st.markdown(
+            #     """
+            #     <div class='sidebar-footer'>
+            #         <a href='https://www.circulairebaggerconsortium.nl/' target='_blank'>
+            #             Circulair Bagger Consortium
+            #         </a>
+            #     </div>
+            #     """,
+            #     unsafe_allow_html=True
+            # )
+
+        return True
+
+    elif auth_status is False:
+        # --- LOGIN FAILED ---
+        st.error('Username/password is incorrect')
+        return False
+
+    elif auth_status is None:
+        # --- NOT LOGGED IN YET ---
+        st.warning('Please enter your credentials to access this portal.')
+        return False
